@@ -1,7 +1,6 @@
-#! /usr/bin/env -S node --experimental-modules
+#! /usr/bin/env -S node --experimental-modules --no-deprecation
 
 // suboptimal, but it should work in node.js w/o support for TypedArrays
-// even though it emits a warning
 if (typeof TypedArray === "undefined") {
   global.TypedArray = Buffer;
   global.Uint8Array = TypedArray;
