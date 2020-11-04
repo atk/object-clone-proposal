@@ -47,13 +47,13 @@ const testObjectClone = () => {
   console.log("  returns Symbols");
   testReturn(Symbol("test"), "symbol");
 
-  const testClones = (value, name) => {
-    strict.notStrictEqual(Object.clone(value), value, `${name} was not cloned`);
-    strict.deepStrictEqual(
-      Object.clone(value),
-      value,
-      `${name} could not be cloned`
-    );
+  const testClones = (value, name, additionalTests) => {
+    const clone = Object.clone(value);
+    strict.notStrictEqual(clone, value, `${name} was not cloned`);
+    strict.deepStrictEqual(clone, value, `${name} could not be cloned`);
+    if (additionalTests) {
+      additionalTests(clone, value, name);
+    }
   };
 
   console.log("  clones Date instances");
@@ -79,7 +79,18 @@ const testObjectClone = () => {
   const simpleObject = { a: undefined, b: null, c: true, d: 42, e: "string" };
   testClones(simpleObject, "simple object");
   const nestedObject = { a: [{ b: "nested" }], c: {} };
-  testClones(nestedObject, "nested object");
+  testClones(nestedObject, "nested object", (clone, value) => {
+    strict.notStrictEqual(
+      clone.a[0],
+      value.a[0],
+      "object inside nested object was not cloned"
+    );
+    strict.deepStrictEqual(
+      clone.a[0],
+      value.a[0],
+      "object inside nested object could not be cloned"
+    );
+  });
   const circularObject = {};
   circularObject.circularReference = circularObject;
   testClones(circularObject, "circular object");
