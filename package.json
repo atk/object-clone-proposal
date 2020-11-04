@@ -1,0 +1,17 @@
+{
+  "name": "object-clone-proposal",
+  "version": "0.1.0",
+  "description": "Proposal for an Object.clone method in ECMAScript",
+  "main": "object-clone.js",
+  "scripts": {
+    "test": "./object-clone-tests.mjs"
+  },
+  "keywords": [
+    "object",
+    "clone",
+    "proposal",
+    "tc39"
+  ],
+  "author": "Alex Lohr <alex.lohr@logmein.com>",
+  "license": "MIT"
+}
