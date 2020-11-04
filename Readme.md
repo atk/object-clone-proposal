@@ -26,6 +26,10 @@ Another edge case for cloning objects are cyclical references. The obvious inten
 
 A much used shortcut for this task is `JSON.parse(JSON.stringify(object))`, which combines the drawbacks of less efficiency with poorer handling of cyclical references, functions and object instances. A native method could put an end to this abuse.
 
+### Security
+
+It may be possible to abuse this method in order to spam the garbage collector and thus hog the runtime's memory, but it is simple enough to do the same without Object.clone, so the security is not worse for this method. On the other hand, a native implementation could detect if the cloned object is actually used or either the clone or its origin are changed in order to avoid unneccessary allocations.
+
 ## Prior art
 
 There are multiple libraries to provide a similar functionality in ECMAScript:
