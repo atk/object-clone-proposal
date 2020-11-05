@@ -1,10 +1,14 @@
 # ECMAScript proposal: Object.clone()
 
-Stage 1 - early draft
+Stage 0 - Strawperson
 
 With the spread operator `...`, it is fairly simple to make a shallow clone of an object.
 
 However, in some cases you need to create a clone of all layers inside the object. It would be much more efficient to natively copy the referenced memory than to clone it manually.
+
+## Call for feedback
+
+As long as there is no TC39 member who will champion this proposal, this is open for feedback, questions and improvements. Use [Issues](https://github.com/atk/object-clone-proposal/issues) and [PRs](https://github.com/atk/object-clone-proposal/pulls) as you see fit.
 
 ## Syntax
 
@@ -34,7 +38,19 @@ Cloning an object has been a moving target for a while. With all the new additio
 
 `Object.clone` will not clone literals that will be reinstantiated if their value changed and thus need not be cloned, like `undefined, null, boolean, number, string, function` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WeakMap`; those will be merely returned. The same principle applies to nested properties of these types. Everything else will be cloned recursively.
 
-`function` here is a bit of an exception, since it can have properties that can be changed. However, a singleton will be the preferred pattern for such a use case and since it is not a function but an instance, this would be cloned. The same behavior is also apparent in all tested libraries counted as prior art; if well documented, it should not cause issues.
+`function` here is a bit of an exception, since it can have properties that can be changed:
+
+```javascript
+const f = () => 0
+x.property = true
+const x = Object.clone({ f });
+x.f.property = false
+console.log(f.property) // false
+// if the function was cloned, property would only be changed in the clone
+// and thus be true
+```
+
+A singleton will be the preferred pattern for such a use case and since it is not a function but an instance, this would be cloned. The same behavior is also apparent in all tested libraries counted as prior art; if well documented, it should not cause issues.
 
 ### Cyclical references
 
