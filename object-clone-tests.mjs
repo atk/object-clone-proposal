@@ -101,6 +101,55 @@ const testObjectClone = () => {
     }
   }
   testClones(new Test(), "test class");
+
+  const testExtension = (value, methodMap, name, additionalTests) => {
+    const clone = Object.clone(value, methodMap);
+    strict.notStrictEqual(clone, value, `${name} was not cloned`);
+    if (additionalTests) {
+      additionalTests(clone, value, name);
+    }
+  };
+
+  console.log("  clones functions if so extended");
+  function testFunc() {
+    return "test";
+  }
+  testFunc.property = "test";
+  testFunc.testObject = { a: [1, 2, 3] };
+  testExtension(
+    testFunc,
+    new Map([
+      [
+        Function,
+        (func, map, clone) => {
+          const ref = new Function(`return ${func.toString()}`)();
+          map.set(func, ref);
+          for (const key in func) {
+            ref[key] = clone(func[key]);
+          }
+          return ref;
+        },
+      ],
+    ]),
+    "function (by extension)",
+    (clone, value, name) => {
+      strict.strictEqual(
+        clone.property,
+        value.property,
+        `property of ${name} could not be cloned`
+      );
+      strict.notStrictEqual(
+        clone.testObject,
+        value.testObject,
+        `object property of ${name} was not cloned`
+      );
+      strict.deepStrictEqual(
+        clone.testObject,
+        value.testObject,
+        `object property of ${name} could not be cloned`
+      );
+    }
+  );
 };
 
 testObjectClone();
