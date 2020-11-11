@@ -119,20 +119,15 @@ const testObjectClone = () => {
   testExtension(
     testFunc,
     new Map([
-      [
-        Function,
-        (func, map, clone) => {
-          const ref = new Function(`return ${func.toString()}`)();
-          map.set(func, ref);
-          for (const key in func) {
-            ref[key] = clone(func[key]);
-          }
-          return ref;
-        },
-      ],
+      [Function, [(func) => new Function(`return ${func.toString()}`)()]],
     ]),
     "function (by extension)",
     (clone, value, name) => {
+      strict.strictEqual(
+        clone(),
+        value(),
+        "functionality of clone of ${name} fails"
+      );
       strict.strictEqual(
         clone.property,
         value.property,
