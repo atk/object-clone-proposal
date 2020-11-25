@@ -121,13 +121,12 @@ const testObjectClone = () => {
     new Map([
       [
         Function,
-        (func, map, clone) => {
+        function* (func, clone) {
           const ref = new Function(`return ${func.toString()}`)();
-          map.set(func, ref);
+          yield ref;
           for (const key in func) {
             ref[key] = clone(func[key]);
           }
-          return ref;
         },
       ],
     ]),

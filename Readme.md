@@ -25,10 +25,8 @@ As long as there is no TC39 member who will champion this proposal, this is comp
 const clone = Object.clone(object);
 const extendedClone = Object.clone(
   object,
-  new Map([[MyConstructor, (instance, map) => {
-    const clone = instance.clone();
-    map.set(instance, clone);
-    return clone;
+  new Map([[MyConstructor, function*(instance) {
+    yield instance.clone();
   }]])
 );
 ```
@@ -73,20 +71,16 @@ A singleton will be the preferred pattern for such a use case and since it is no
 
 ### How to extend what is cloned?
 
-`Object.clone` supports an optional second argument, which should contain a `Map([[constructor, cloneMethod]])`, allowing to extend the types that are cloned manually. CloneMethod here is a function that has the following blueprint:
+`Object.clone` supports an optional second argument, which should contain a `Map([[constructor, cloneMethod]])`, allowing to extend the types that are cloned manually. CloneMethod here is a generator that has the following blueprint:
 
 ```javascript
-const cloneMethod = (object, map, clone) => {
+const cloneMethod = function*(object, clone) => {
   // create a reference (without cloned data)
   const reference = object.cloneRef();
-  // store reference in the map
-  map.set(object, reference);
-  // fill reference with cloned data.
-  // Use clone here instead of Object.clone
-  object.keys().forEach((key) => {
-    reference[key] = clone(object[key]);
-  });
-  return reference;
+  yield reference
+  // you can use clone(object) instead of Ojbect.clone
+  // and clone.properties() to use the default cloning method
+  clone.properties(reference);
 }
 ```
 
@@ -94,18 +88,15 @@ For example, if you want to clone DOM Nodes and functions, you can extend `Objec
 
 ```javascript
 const clone = Object.clone(object, new Map([
-  [Function, (func, map, clone) => {
+  [Function, function*(func, clone) => {
     const ref = new Function(`return ${func.toString()}`)();
-    map.set(func, ref);
+    yield ref
     for (key in func) {
       ref[key] = clone(func[key])
     }
-    return ref
   }],
-  [Node, (node, map) => {
-    const ref = node.cloneNode(true);
-    map.set(node, ref);
-    return ref;
+  [Node, function*(node) => {
+    yield node.cloneNode(true)
   }]
 ]));
 ```
@@ -136,45 +127,90 @@ It may be possible to abuse this method in order to spam the garbage collector a
 ```javascript
 if (typeof Object.clone !== "function") {
   const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|String|Symbol|WeakMap)\]$/;
+
+  const defaultMethods = new Map([
+    [
+      Date,
+      function* (date) {
+        const ref = new Date();
+        yield ref;
+        ref.setTime(date.getTime());
+      },
+    ],
+    [
+      Map,
+      function* (map, clone) {
+        const ref = new Map();
+        yield ref;
+        map.forEach((value, key) => ref.set(clone(key), clone(value)));
+      },
+    ],
+    [
+      Function,
+      function* (func) {
+        // do not clone functions by default
+        yield func;
+      },
+    ],
+    [
+      Promise,
+      function* (promise) {
+        yield new Promise((resolve, reject) => {
+          promise.then(resolve).catch(reject);
+        });
+      },
+    ],
+    [
+      Object,
+      function* (obj, clone) {
+        const ref =
+          obj instanceof TypedArray
+            ? new obj.constructor(obj.length)
+            : new obj.constructor();
+        yield ref;
+        clone.properties(ref)
+      },
+    ],
+  ]);
+
+  if (this.Node) {
+    // do not clone nodes by default
+    defaultMethods.set(Node, function*(node) { yield node; })
+  }
+
+  const getByInstance = (obj, methodMap) => {
+    for (const constructor of methodMap.keys()) {
+      if (obj instanceof constructor) return methodMap.get(constructor);
+    }
+  };
+
+  const getCloneMethod = (obj, methodMap) =>
+    methodMap.has(obj.constructor)
+      ? methodMap.get(obj.constructor)
+      : defaultMethods.has(obj.constructor)
+      ? defaultMethods.get(obj.constructor)
+      : getByInstance(obj, methodMap) || getByInstance(obj, defaultMethods) || defaultMethods.get(Object);
+
   const clone = (obj, map, methodMap) => {
-    if (
-      unclonable.test(Object.prototype.toString.call(obj)) ||
-      (typeof obj !== "object" && !methodMap.has(obj.constructor))
-    ) {
-      return obj;
-    }
-
+    if (unclonable.test(Object.prototype.toString.call(obj))) return obj;
     if (map.has(obj)) return map.get(obj);
-
-    if (methodMap.has(obj.constructor)) {
-      return methodMap.get(obj.constructor)(obj, map, (obj) =>
-        clone(obj, map, methodMap)
-      );
-    }
-
-    const temp =
-      obj instanceof TypedArray
-        ? new obj.constructor(obj.length)
-        : new obj.constructor();
-
-    map.set(obj, temp);
-
-    if (obj instanceof TypedArray) {
-      temp.set(obj.map((value) => clone(value, map, methodMap)));
-    } else if (obj instanceof Map) {
-      obj.forEach((value, key) => temp.set(key, clone(value, map, methodMap)));
-    } else if (obj instanceof Date) {
-      temp.setTime(obj.getTime());
-    } else {
+    const cloneMethod = getCloneMethod(obj, methodMap);
+    if (!cloneMethod) return obj;
+    const wrappedClone = (obj) => clone(obj, map, methodMap)
+    wrappedClone.properties = (ref) => {
       for (const key in obj) {
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
-          temp[key] = clone(obj[key], map, methodMap);
+          ref[key] = wrappedClone(obj[key]);
         }
       }
     }
-    return temp;
+    const ref = cloneMethod(obj, wrappedClone).next();
+    map.set(obj, ref);
+    cloneMethod.next();
+    return ref;
   };
   Object.clone = (obj, methodMap) =>
     clone(obj, new Map(), methodMap || new Map());
 }
+
 ```
