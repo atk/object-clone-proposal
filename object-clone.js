@@ -55,11 +55,7 @@ if (typeof Object.clone !== "function") {
             ? new obj.constructor(obj.length)
             : new obj.constructor();
         yield ref;
-        for (const key in obj) {
-          if (Object.prototype.hasOwnProperty.call(obj, key)) {
-            ref[key] = clone(obj[key]);
-          }
-        }
+        clone.properties(ref);
       },
     ],
   ]);
