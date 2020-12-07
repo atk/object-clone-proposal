@@ -6,11 +6,11 @@ if (typeof TypedArray === "undefined") {
   global.Uint8Array = TypedArray;
 }
 
-import "./object-clone.js";
-
 import { strict } from "assert";
 
-const testObjectClone = () => {
+const testObjectClone = async () => {
+  await import("./object-clone.js");
+
   console.log("Object.clone");
   console.log("  is a function");
   strict.strictEqual(
@@ -72,7 +72,15 @@ const testObjectClone = () => {
   const map = new Map();
   map.set(["key"], { value: null });
   map.set({ other: "key" }, "other value");
-  testClones(map, "map");
+  testClones(map, "Map");
+
+  console.log("  clones Sets");
+  const set = new Set(["a", ["b"], { c: "d" }]);
+  testClones(set, "Set");
+
+  console.log("  clones RegExp");
+  const regexp = /test\ntest/gi;
+  testClones(regexp, "RegExp");
 
   console.log("  clones Objects");
   const simpleObject = { a: undefined, b: null, c: true, d: 42, e: "string" };
@@ -121,13 +129,12 @@ const testObjectClone = () => {
     new Map([
       [
         Function,
-        (func, map, clone) => {
+        function* (func, clone) {
           const ref = new Function(`return ${func.toString()}`)();
-          map.set(func, ref);
+          yield ref;
           for (const key in func) {
             ref[key] = clone(func[key]);
           }
-          return ref;
         },
       ],
     ]),
@@ -152,4 +159,4 @@ const testObjectClone = () => {
   );
 };
 
-testObjectClone();
+testObjectClone().catch(console.error);
