@@ -36,11 +36,15 @@ There are multiple libraries to provide a similar functionality in ECMAScript:
 * [jQuery](https://api.jquery.com/jquery.extend/)'s `$.extend(true, object)`
 * [multiple packages on npmjs](https://www.npmjs.com/search?q=clone)
 
-Most other languages that handle references have similar functionality, i.e.
+The functionality of these methods [differs somewhat](./Comparison.md) which can easily lead to confusion or even errors.
+
+Also, some other languages that handle references have similar functionality, i.e.
 
 * Rust's clone trait
 * Java's clone method
 * Python's deepcopy
+
+While others require an external library in order to do so - of varying quality and functionality.
 
 ## Considerations
 

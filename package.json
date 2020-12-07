@@ -1,6 +1,6 @@
 {
   "name": "object-clone-proposal",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Proposal for an Object.clone method in ECMAScript",
   "main": "object-clone.js",
   "homepage": "https://github.com/atk/object-clone-proposal",
