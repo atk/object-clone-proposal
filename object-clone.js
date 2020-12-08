@@ -1,5 +1,11 @@
 if (typeof Object.clone !== "function") {
-  const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|String|Symbol|WeakMap)\]$/;
+  const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|BigInt|String|Symbol|Module|Weak(?:Set|Map)|(?:Shared)?ArrayBuffer|DataView)\]$/;
+
+  function* handleTypedArrays(typedArray, clone) {
+    const ref = new typedArray.constructor(typedArray.length);
+    yield ref;
+    ref.set(typedArray.map((value) => clone(value)));
+  }
 
   const defaultMethods = new Map([
     [
@@ -21,17 +27,22 @@ if (typeof Object.clone !== "function") {
       function* (map, clone) {
         const ref = new Map();
         yield ref;
-        map.forEach((value, key) => ref.set(clone(key), clone(value)));
+        map.forEach((value, key) => ref.set(key, clone(value)));
       },
     ],
-    [
-      TypedArray,
-      function* (typedArray, clone) {
-        const ref = new typedArray.constructor(typedArray.length);
-        yield ref;
-        ref.set(typedArray.map((value) => clone(value)));
-      },
-    ],
+    ...[
+      Int8Array,
+      Uint8Array,
+      Uint8ClampedArray,
+      Int16Array,
+      Uint16Array,
+      Int32Array,
+      Uint32Array,
+      Float32Array,
+      Float64Array,
+      BigInt64Array,
+      BigUint64Array,
+    ].map((constructor) => [constructor, handleTypedArrays]),
     [Function, false],
     [
       Promise,
@@ -50,10 +61,7 @@ if (typeof Object.clone !== "function") {
     [
       Object,
       function* (obj, clone) {
-        const ref =
-          obj instanceof TypedArray
-            ? new obj.constructor(obj.length)
-            : new obj.constructor();
+        const ref = new obj.constructor();
         yield ref;
         clone.properties(ref);
       },

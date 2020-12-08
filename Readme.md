@@ -18,6 +18,7 @@ As long as there is no TC39 member who will champion this proposal, this is comp
 
 - convenient way of forcing complete rerender for MVC framworks like react
 - creating immutable clones of state for an undo history
+- making in immutable clone of a proxied object
 
 ## Syntax
 
@@ -48,11 +49,11 @@ While others require an external library in order to do so - of varying quality 
 
 ## Considerations
 
-Cloning an object has been a moving target for a while. With all the new additions to the language like TypedArray, (Weak)Map, Symbol, the requirements have changed fast. While this means any external solution or polyfill might have to be updated with those changes, it also means a native implementation will be quite beneficial.
+Cloning an object has been a moving target for a while. With all the new additions to the language like TypedArray, Set, Map, Symbol, the requirements have changed fast. While this means any external solution or polyfill might have to be updated with those changes, it also means a native implementation will be quite beneficial.
 
 ### What will be cloned by default?
 
-`Object.clone` will by default not clone literals that will be reinstantiated if their value changed and thus need not be cloned, like `undefined, null, boolean, number, string, function` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WeakMap` or will usually be handled as unique reference like `Node`; those will be merely returned. The same principle applies to nested properties of these types. Everything else will be cloned recursively.
+`Object.clone` will by default not clone literals that will be reinstantiated if their value changed and thus need not be cloned, like `undefined, null, Boolean, Number, BigInt, String, Function, AsyncFunction, GeneratorFunction` and `AsyncGeneratorFunction` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WASM Modules`, `WeakMap` and `WeakSet` or will usually be handled as unique reference like `Node`; those will be merely returned. The same principle applies to nested properties of these types. Everything else will be cloned recursively.
 
 `function` here is a bit of an exception, since it can have properties that can be changed:
 
@@ -67,6 +68,10 @@ console.log(f.property) // false
 ```
 
 A singleton will be the preferred pattern for such a use case and since it is not a function but an instance, this would be cloned. The same behavior is also apparent in all tested libraries counted as prior art; if well documented, it should not cause issues.
+
+Another interesting question is if the keys of a `Map` or even the values of a `Set` should be cloned. Since the key is used as a reference, it should not be cloned; the value, however, is used as a property and thus should be cloned. A similar approach should be taken with (Shared)ArrayBuffer, which itself is a reference to a TypedArray, and to DataView - cloning those could break too many things.
+
+Lastly, objects handled by [proxies](https://tc39.es/ecma262/#sec-proxy-constructor) will nevertheless be cloned without special handling, so it could be used to create a clone without the proxy attached.
 
 ### Cyclic references
 
@@ -158,14 +163,23 @@ For example, if you want to clone DOM Nodes and functions, but do not want to cl
 
 ```javascript
 const clone = Object.clone(object, new Map([
-  [Function, function*(func, clone) => {
-    const ref = new Function(`return ${func.toString()}`)();
-    yield ref
-    for (key in func) {
-      ref[key] = clone(func[key])
-    }
-  }],
-  [Node, function*(node) => {
+  [
+    Function,
+    function* (func, clone) {
+      let ref;
+      try {
+        ref = new Function(`return ${func.toString()}`)();
+      } catch (e) {
+        // do not clone native functions
+        ref = func;
+      }
+      yield ref;
+      for (const key in func) {
+        ref[key] = clone(func[key]);
+      }
+    },
+  ],
+  [Node, function*(node) {
     yield node.cloneNode(true)
   }],
   [MyClass, false]
@@ -176,15 +190,19 @@ const clone = Object.clone(object, new Map([
 
 ```javascript
 if (typeof Object.clone !== "function") {
-  const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|String|Symbol|WeakMap)\]$/;
+  const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|BigInt|String|Symbol|Module|Weak(?:Set|Map)|(?:Shared)?ArrayBuffer|DataView)\]$/;
+
+  function* handleTypedArrays(typedArray, clone) {
+    const ref = new typedArray.constructor(typedArray.length);
+    yield ref;
+    ref.set(typedArray.map((value) => clone(value)));
+  }
 
   const defaultMethods = new Map([
     [
       Date,
       function* (date) {
-        const ref = new Date();
-        ref.setTime(date.getTime());
-        yield ref;
+        yield new Date(date.valueOf());
       },
     ],
     [
@@ -200,17 +218,22 @@ if (typeof Object.clone !== "function") {
       function* (map, clone) {
         const ref = new Map();
         yield ref;
-        map.forEach((value, key) => ref.set(clone(key), clone(value)));
+        map.forEach((value, key) => ref.set(key, clone(value)));
       },
     ],
-    [
-      TypedArray,
-      function* (typedArray, clone) {
-        const ref = new typedArray.constructor(typedArray.length);
-        yield ref;
-        ref.set(typedArray.map((value) => clone(value)));
-      },
-    ],
+    ...[
+      Int8Array,
+      Uint8Array,
+      Uint8ClampedArray,
+      Int16Array,
+      Uint16Array,
+      Int32Array,
+      Uint32Array,
+      Float32Array,
+      Float64Array,
+      BigInt64Array,
+      BigUint64Array,
+    ].map((constructor) => [constructor, handleTypedArrays]),
     [Function, false],
     [
       Promise,
@@ -221,14 +244,17 @@ if (typeof Object.clone !== "function") {
       },
     ],
     [
+      RegExp,
+      function* (regexp) {
+        yield new RegExp(regexp);
+      },
+    ],
+    [
       Object,
       function* (obj, clone) {
-        const ref =
-          obj instanceof TypedArray
-            ? new obj.constructor(obj.length)
-            : new obj.constructor();
+        const ref = new obj.constructor();
         yield ref;
-        clone.properties(ref)
+        clone.properties(ref);
       },
     ],
   ]);

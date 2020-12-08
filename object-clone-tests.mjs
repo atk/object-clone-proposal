@@ -1,10 +1,4 @@
-#! /usr/bin/env -S node --experimental-modules --no-deprecation
-
-// suboptimal, but it should work in node.js w/o support for TypedArrays
-if (typeof TypedArray === "undefined") {
-  global.TypedArray = Buffer;
-  global.Uint8Array = TypedArray;
-}
+#! /usr/bin/env -S node --experimental-modules
 
 import { strict } from "assert";
 
@@ -29,22 +23,62 @@ const testObjectClone = async () => {
   console.log("  returns `null`");
   testReturn(null, "null");
 
-  console.log("  returns booleans");
+  console.log("  returns Booleans");
   testReturn(true, "true");
   testReturn(false, "false");
 
-  console.log("  returns numbers");
-  testReturn(42, "integer");
-  testReturn(4 / 3, "float");
+  console.log("  returns Numbers");
+  testReturn(42, "Integer");
+  testReturn(4 / 3, "Float");
 
-  console.log("  returns strings");
-  testReturn("test", "string");
+  console.log("  returns BigInts");
+  testReturn(
+    BigInt("12941092850129012851029841982580921851285198271824218124"),
+    "BigInt"
+  );
 
-  console.log("  returns functions");
-  testReturn(() => null, "function");
+  console.log("  returns Strings");
+  testReturn("test", "String");
+
+  console.log("  returns Functions");
+  testReturn(() => null, "Function");
+
+  console.log("  returns AsnycFunctions");
+  testReturn(async () => true, "AsyncFunction");
+
+  console.log("  returns GeneratorFunctions");
+  testReturn(function* () {
+    yield true;
+  }, "GeneratorFunction");
+
+  console.log("  returns AsyncGeneratorFunctions");
+  testReturn(async function* () {
+    yield Promise.resolve(true);
+  }, "AsyncGeneratorFunction");
 
   console.log("  returns Symbols");
-  testReturn(Symbol("test"), "symbol");
+  testReturn(Symbol("test"), "Symbol");
+
+  console.log("  returns WeakSets");
+  testReturn(new WeakSet([{}, {}, {}]), "WeakSet");
+
+  console.log("  returns WeakMaps");
+  testReturn(
+    new WeakMap([
+      [{}, "test"],
+      [{}, [1, 2, 3]],
+    ]),
+    "WeakMap"
+  );
+
+  console.log("  returns ArrayBuffer");
+  testReturn(new ArrayBuffer(1), "ArrayBuffer");
+
+  console.log("  returns SharedArrayBuffer");
+  testReturn(new SharedArrayBuffer(1), "SharedArrayBuffer");
+
+  console.log("  returns DataView");
+  testReturn(new DataView(new ArrayBuffer(1)), "DataView");
 
   const testClones = (value, name, additionalTests) => {
     const clone = Object.clone(value);
@@ -56,17 +90,18 @@ const testObjectClone = async () => {
   };
 
   console.log("  clones Date instances");
-  testClones(new Date(), "date");
+  testClones(new Date(), "Date");
 
   console.log("  clones Arrays");
-  testClones([1, 2, 3, 4], "simple array");
+  testClones([1, 2, 3, 4], "simple Array");
   const circularArray = [];
   circularArray.push(circularArray);
-  testClones(circularArray, "circular array");
-  testClones([1, [2, [3, [4]]]], "nested array");
+  testClones(circularArray, "circular Array");
+  testClones([1, [2, [3, [4]]]], "nested Array");
 
   console.log("  clones TypedArrays");
   testClones(new Uint8Array([1, 2, 3, 4, 5, 6]), "Uint8Array");
+  testClones(new Int32Array([1, 2, 3, 4, 5, 6]), "Int32Array");
 
   console.log("  clones Maps");
   const map = new Map();
@@ -90,17 +125,17 @@ const testObjectClone = async () => {
     strict.notStrictEqual(
       clone.a[0],
       value.a[0],
-      "object inside nested object was not cloned"
+      "Object inside nested Object was not cloned"
     );
     strict.deepStrictEqual(
       clone.a[0],
       value.a[0],
-      "object inside nested object could not be cloned"
+      "Object inside nested Object could not be cloned"
     );
   });
   const circularObject = {};
   circularObject.circularReference = circularObject;
-  testClones(circularObject, "circular object");
+  testClones(circularObject, "circular Object");
 
   console.log("  clones instances");
   class Test {
@@ -108,7 +143,7 @@ const testObjectClone = async () => {
       return "test";
     }
   }
-  testClones(new Test(), "test class");
+  testClones(new Test(), "test Class");
 
   const testExtension = (value, methodMap, name, additionalTests) => {
     const clone = Object.clone(value, methodMap);
@@ -130,7 +165,13 @@ const testObjectClone = async () => {
       [
         Function,
         function* (func, clone) {
-          const ref = new Function(`return ${func.toString()}`)();
+          let ref;
+          try {
+            ref = new Function(`return ${func.toString()}`)();
+          } catch (e) {
+            // do not clone native functions
+            ref = func;
+          }
           yield ref;
           for (const key in func) {
             ref[key] = clone(func[key]);
