@@ -94,6 +94,15 @@ const testObjectClone = async () => {
 
   console.log("  clones Arrays");
   testClones([1, 2, 3, 4], "simple Array");
+  const repeatedReferenceArray = [{}];
+  repeatedReferenceArray.push(repeatedReferenceArray[0]);
+  testClones(repeatedReferenceArray, "repeated reference array", (clone) => {
+    strict.strictEqual(
+      clone[0],
+      clone[1],
+      "Repeated reference inside an array was wrongly cloned twice"
+    );
+  });
   const circularArray = [];
   circularArray.push(circularArray);
   testClones(circularArray, "circular Array");
@@ -154,6 +163,26 @@ const testObjectClone = async () => {
   };
 
   console.log("  clones functions if so extended");
+  const cloneFunction = [
+    Function,
+    function* (func, clone) {
+      let ref, error;
+      try {
+        ref = new Function(`return ${func.toString()}`)();
+      } catch (e) {
+        // do not clone native functions
+        ref = func;
+        error = e;
+      }
+      yield ref;
+      if (error) {
+        return;
+      }
+      for (const key in func) {
+        ref[key] = clone(func[key]);
+      }
+    },
+  ];
   function testFunc() {
     return "test";
   }
@@ -161,24 +190,7 @@ const testObjectClone = async () => {
   testFunc.testObject = { a: [1, 2, 3] };
   testExtension(
     testFunc,
-    new Map([
-      [
-        Function,
-        function* (func, clone) {
-          let ref;
-          try {
-            ref = new Function(`return ${func.toString()}`)();
-          } catch (e) {
-            // do not clone native functions
-            ref = func;
-          }
-          yield ref;
-          for (const key in func) {
-            ref[key] = clone(func[key]);
-          }
-        },
-      ],
-    ]),
+    new Map([cloneFunction]),
     "function (by extension)",
     (clone, value, name) => {
       strict.strictEqual(

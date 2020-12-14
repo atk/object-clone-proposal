@@ -63,7 +63,7 @@ if (typeof Object.clone !== "function") {
       function* (obj, clone) {
         const ref = new obj.constructor();
         yield ref;
-        clone.properties(ref);
+        clone.properties();
       },
     ],
   ]);
@@ -83,6 +83,7 @@ if (typeof Object.clone !== "function") {
     defaultMethods.get(obj.constructor) ??
     getByInstance(obj, methodMap) ??
     getByInstance(obj, defaultMethods) ??
+    methodMap.get(Object) ??
     defaultMethods.get(Object);
 
   const clone = (obj, map, methodMap) => {
@@ -90,19 +91,29 @@ if (typeof Object.clone !== "function") {
     if (map.has(obj)) return map.get(obj);
     const cloneMethod = getCloneMethod(obj, methodMap);
     if (!cloneMethod) return obj;
-    const wrappedClone = (obj) => clone(obj, map, methodMap);
-    wrappedClone.properties = (ref) => {
+    const ref = { current: undefined };
+    const wrappedClone = (obj) => {
+      if (ref.current) {
+        return clone(obj, map, methodMap);
+      }
+    };
+    wrappedClone.properties = () => {
+      if (ref.current === undefined) {
+        return;
+      }
       for (const key in obj) {
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
-          ref[key] = wrappedClone(obj[key]);
+          ref.current[key] = wrappedClone(obj[key]);
         }
       }
     };
     const cloneIterator = cloneMethod(obj, wrappedClone);
-    const ref = cloneIterator.next().value;
-    map.set(obj, ref);
-    cloneIterator.next();
-    return ref;
+    ref.current = cloneIterator.next().value;
+    map.set(obj, ref.current);
+    if (ref.current) {
+      cloneIterator.next();
+    }
+    return ref.current;
   };
 
   Object.clone = (obj, methodMap) =>
