@@ -16,9 +16,9 @@ As long as there is no TC39 member who will champion this proposal, this is comp
 
 ## Use cases
 
-- convenient way of forcing complete rerender for MVC framworks like react
+- convenient way of forcing complete re-render for MVC frameworks like react
 - creating immutable clones of state for an undo history
-- making an immutable non-proxied clone of a proxied object
+- making an immutable clone without a proxy of an object with a proxy
 
 ## Syntax
 
@@ -41,9 +41,9 @@ The functionality of these methods [differs somewhat](./Comparison.md) which can
 
 Also, some other languages that handle references have similar functionality, i.e.
 
-* Rust's clone trait
-* Java's clone method
-* Python's deepcopy
+* Rust's `clone` trait
+* Java's `clone` method
+* Python's `deepcopy`
 
 While others require an external library in order to do so - of varying quality and functionality.
 
@@ -57,7 +57,7 @@ A much used shortcut for this task is `JSON.parse(JSON.stringify(object))`, whic
 
 ### What will be cloned by default?
 
-`Object.clone` will by default not clone literals that will be reinstantiated if their value changed and thus need not be cloned, like `undefined, null, Boolean, Number, BigInt, String, Function, AsyncFunction, GeneratorFunction` and `AsyncGeneratorFunction` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WASM Modules`, `WeakMap` and `WeakSet` or will usually be handled as unique reference like `Node`; those will be merely returned. The same principle applies to nested properties of these types. Everything else will be cloned recursively.
+`Object.clone` will by default not clone literals that will be newly instantiated if their value changed and thus need not be cloned, like `undefined, null, Boolean, Number, BigInt, String, Function, AsyncFunction, GeneratorFunction` and `AsyncGeneratorFunction` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WASM Modules`, `WeakMap` and `WeakSet` or will usually be handled as unique reference like `Node`; those will be merely returned. The same principle applies to nested properties of these types. Everything else will be cloned recursively.
 
 `function` here is a bit of an exception, since it can have properties that can be changed:
 
@@ -106,9 +106,9 @@ To handle both of these cases, before cloning the properties recursively, we nee
 
 There are use cases that are not fulfilled by the default handling of `Object.clone`, so there should be a way to support them, too, similar to the second argument of `JSON.stringify(value, replacer, space)` or `JSON.parse(json, reviver)`. While one could use a similar approach, this would mean whatever handler was used had to handle almost everything itself, which would basically render `Object.clone` useless in such cases.
 
-A better approach is sure to only modify the behavior for those constructors that one actually wants to modify. A `Map([[constructor, cloneMethod]])` instantly springs to mind, which allows to extend or overwrite each of the types that are cloned separately. Since we need to fill our reference map, each call of this function should cover the following steps (not neccessarily by itself):
+A better approach is sure to only modify the behavior for those constructors that one actually wants to modify. A `Map([[constructor, cloneMethod]])` instantly springs to mind, which allows to extend or overwrite each of the types that are cloned separately. Since we need to fill our reference map, each call of this function should cover the following steps (not necessarily by itself):
 
-1. Create a reference without cloned properties, so we do not accidentially clone twice or get an infinite loop from cyclic references
+1. Create a reference without cloned properties, so we do not accidentally clone twice or get an infinite loop from cyclic references
 2. Store the new reference in the internal map that is required to handle repeated and cyclic references
 3. Clone all its properties with the updated reference map and add them to the reference
 
@@ -118,7 +118,7 @@ A naive implementation of these steps looks like this:
 
 ```javascript
 function cloneMethod(object, map, clone) {
-  const refeference = new object.constructor();
+  const reference = new object.constructor();
   map.set(object, reference);
   Object.keys(object).forEach((key) => {
     reference[key] = clone(object[key]);
@@ -200,7 +200,7 @@ The thought of being able to persistently modify the handling of certain types. 
 
 #### Best practices for library authors
 
-Libraries and frameworks might want their own types to be handled consistently by `Object.clone`. The best practice is to export an array that can be destructured into the initial array for `methodMap`, preferably as a separate entity or even package inside your library to avoid it being unneccessarily linked into your user's project.
+Libraries and frameworks might want their own types to be handled consistently by `Object.clone`. The best practice is to export an array that can be destructured into the initial array for `methodMap`, preferably as a separate entity or even package inside your library to avoid it being unnecessarily linked into your user's project.
 
 ```javascript
 export const cloneMethods = [
@@ -213,7 +213,7 @@ This allows for consistent handling for all external libraries that apply these 
 
 ### Security
 
-It may be possible to abuse this method in order to spam the garbage collector and thus hog the runtime's memory, but it is simple enough to do the same without Object.clone, so the security is not worse for this method. On the other hand, a native implementation could detect if the cloned object is actually used or either the clone or its origin are changed in order to avoid unneccessary allocations.
+It may be possible to abuse this method in order to spam the garbage collector and thus hog the runtime memory, but it is simple enough to do the same without Object.clone, so the security is not worse for this method. On the other hand, a native implementation could detect if the cloned object is actually used or either the clone or its origin are changed in order to avoid unnecessary allocations.
 
 Also, one could make a case for an extension API that allowed for anyone to add/overwrite clone methods. While that would certainly simplify the handling of 
 
