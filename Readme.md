@@ -16,9 +16,21 @@ As long as there is no TC39 member who will champion this proposal, this is comp
 
 ## Use cases
 
-- convenient way of forcing complete re-render for MVC frameworks like react
-- creating immutable clones of state for an undo history
-- making an immutable clone without a proxy of an object with a proxy
+The main use case is the creation of an object equal in value to the original, but without shared references that would let modifications to the original cause changes in the clone, like in this example:
+
+```javascript
+const example = { deep: { inside: 'value' } };
+const shallow = { ...example };
+const clone = Object.clone(example);
+example.deep.inside = 'other value';
+console.log([shallow.deep.inside, clone.deep.inside]);
+// ['other value', 'value']
+```
+
+- convenient way of forcing a complete re-render for MVC frameworks
+- creating clones without shared references of state for an undo history
+- making a clone without a proxy of an object with a proxy
+- getting a completely unfrozen clone of a deeply frozen object
 
 ## Syntax
 
