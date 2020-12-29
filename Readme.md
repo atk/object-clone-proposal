@@ -48,6 +48,7 @@ There are multiple libraries to provide a similar functionality in ECMAScript:
 * [ramda](https://ramdajs.com/docs/#clone)'s `R.clone(object)`
 * [jQuery](https://api.jquery.com/jquery.extend/)'s `$.extend(true, object)`
 * [multiple packages on npmjs](https://www.npmjs.com/search?q=clone)
+* [Espruino](https://www.espruino.com/Reference#l_Object_clone)'s `Object.clone(object)`
 
 The functionality of these methods [differs somewhat](./Comparison.md) which can easily lead to confusion or even errors.
 
@@ -112,7 +113,11 @@ Object.clone(x)
 // Uncaught RangeError: Maximum call stack size exceeded
 ```
 
-To handle both of these cases, before cloning the properties recursively, we need to make sure that we save the references in a `Map([[object, reference]])` to be reused whenever they are cloned again. Obviously, a native solution can access the references directly.
+To handle both of these cases, before cloning the properties recursively, we need to make sure that we save the references in a `Map([[object, reference]])` to be reused whenever they are cloned again. Obviously, a native solution can access the references directly. Unfortunately, a WeakMap will only accept Objects as keys, so we cannot use it.
+
+#### Tortoise & Hare detection of repeated references
+
+If memory is more of an issue than CPU, one could use a [tortoise and hare algorithm](https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_Tortoise_and_Hare) to detect and store only the repeated references. Especially systems with extreme memory restrictions like [espruino](https://www.espruino.com/) with mere 48kb of RAM can benefit from a native implementation using such an approach, which luckily is [already the case](https://www.espruino.com/Reference#l_Object_clone), so a polyfill is not needed here.
 
 ### How to modify what is cloned?
 
@@ -227,8 +232,7 @@ This allows for consistent handling for all external libraries that apply these 
 
 It may be possible to abuse this method in order to spam the garbage collector and thus hog the runtime memory, but it is simple enough to do the same without Object.clone, so the security is not worse for this method. On the other hand, a native implementation could detect if the cloned object is actually used or either the clone or its origin are changed in order to avoid unnecessary allocations.
 
-Also, one could make a case for an extension API that allowed for anyone to add/overwrite clone methods. While that would certainly simplify the handling of 
-
+Also, one could make a case for an extension API that allowed for anyone to add/overwrite clone methods (see above: persistent modification). While that would certainly simplify the handling of exported class instances, it could lead to all sorts of unwanted behavior.
 
 ## Polyfill
 
