@@ -36,7 +36,7 @@ console.log([shallow.deep.inside, clone.deep.inside]);
 
 ```javascript
 const clone = Object.clone(object);
-const extendedClone = Object.clone(object, extensionMap);
+const clone = Object.clone(object, extensionMap)
 ```
 
 ## Prior art
@@ -68,9 +68,31 @@ Cloning an object has been a moving target for a while. With all the new additio
 
 A much used shortcut for this task is `JSON.parse(JSON.stringify(object))`, which combines the drawbacks of less efficiency with poorer handling of repeated and cyclical references, functions and object instances. A native method could put an end to this abuse.
 
+### Deep cloning as an unsolvable problem
+
+We know the way native objects are instantiated and filled with data, because we control this process, but the same cannot be said about custom instances, because we have no introspection into the process of their instantiation. That means all we can provide for this use case is a framework that makes it as simple as possible to create clones of those custom instances.
+
+A good example on how that is done best can be found in [Rust's Clone trait](https://doc.rust-lang.org/std/clone/trait.Clone.html), which can even be derived for instances that do allow for self-replication. Such a self-replication in JS would basically look like `new Array(array)`.
+
+Unfortunately, JS does not have traits and thus must use a less sophisticated mechanism. Fortunately, we do have something rather similar that we can leverage here: `Symbol`. By using `Symbol.clone`, we can add a cloning interface, very similar to the iterable/iterator interface from [ES6 iterators](https://tc39.es/ecma262/#sec-iteration). The method could be attached either to the value itself or its prototype, which allows for very fine-grained control, and in addition could be overwritten by an optional secondary argument to the Object.clone call containing a Map with the constructors and methods to clone them (or `false` to stop them from being cloned).
+
+```javascript
+// directly attached
+const myInstance = new MyClass();
+myInstance[Symbol.clone] = method;
+// attached to constructor's prototype
+class MyClass {
+  get [Symbol.clone]() { return method; }
+}
+// extension map
+Object.clone(myInstance, new Map([[MyClass, method]]));
+```
+
 ### What will be cloned by default?
 
-`Object.clone` will by default not clone literals that will be newly instantiated if their value changed and thus need not be cloned, like `undefined, null, Boolean, Number, BigInt, String, Function, AsyncFunction, GeneratorFunction` and `AsyncGeneratorFunction` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WASM Modules`, `WeakMap` and `WeakSet` or will usually be handled as unique reference like `Node`; those will be merely returned. The same principle applies to nested properties of these types. Everything else will be cloned recursively.
+`Object.clone` will by default not clone literals that will be newly instantiated if their value changed and thus need not be cloned, like `undefined, null, Boolean, Number, BigInt, String, Function, AsyncFunction, GeneratorFunction` and `AsyncGeneratorFunction` as well as values that cannot be cloned for they would cease to work as clones like `Symbol` or have a lack of introspection like `WASM Modules`, `WeakMap` and `WeakSet` or will usually be handled as unique reference like `Node` or the keys of a `Map`; those will be left unchanged. The same principle applies to nested properties of these types.
+
+Also, everything with a [Symbol.clone] property (either own or prototypal) that contains a method to clone it (the format of that method will be explained later) will be cloned.
 
 `function` here is a bit of an exception, since it can have properties that can be changed:
 
@@ -84,7 +106,7 @@ console.log(f.property) // false
 // and thus be true
 ```
 
-A singleton will be the preferred pattern for such a use case and since it is not a function but an instance, this would be cloned. The same behavior is also apparent in all tested libraries counted as prior art; if well documented, it should not cause issues.
+The same applies to singletons, which are instances of Function, too. In any case, the same behavior is also apparent in all tested libraries counted as prior art; if well documented, it should not cause issues.
 
 Another interesting question is if the keys of a `Map` or even the values of a `Set` should be cloned. Since the key is used as a reference, it should not be cloned; the value, however, is used as a property and thus should be cloned. A similar approach should be taken with (Shared)ArrayBuffer, which itself is a reference to a TypedArray, and to DataView - cloning those could break too many things.
 
@@ -119,32 +141,32 @@ To handle both of these cases, before cloning the properties recursively, we nee
 
 If memory is more of an issue than CPU, one could use a [tortoise and hare algorithm](https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_Tortoise_and_Hare) to detect and store only the repeated references. Especially systems with extreme memory restrictions like [espruino](https://www.espruino.com/) with mere 48kb of RAM can benefit from a native implementation using such an approach, which luckily is [already the case](https://www.espruino.com/Reference#l_Object_clone), so a polyfill is not needed here.
 
-### How to modify what is cloned?
+### How to clone your own instances?
 
-There are use cases that are not fulfilled by the default handling of `Object.clone`, so there should be a way to support them, too, similar to the second argument of `JSON.stringify(value, replacer, space)` or `JSON.parse(json, reviver)`. While one could use a similar approach, this would mean whatever handler was used had to handle almost everything itself, which would basically render `Object.clone` useless in such cases.
-
-A better approach is sure to only modify the behavior for those constructors that one actually wants to modify. A `Map([[constructor, cloneMethod]])` instantly springs to mind, which allows to extend or overwrite each of the types that are cloned separately. Since we need to fill our reference map, each call of this function should cover the following steps (not necessarily by itself):
+We have hopefully by now established two things: 1. instances are only cloned if either they or their constructor's prototype have a [Symbol.clone] method attached to them. 2. in order to escape the repeated references issue, we need a reference map of the cloned references, so the method needs to perform the following steps (not necessarily itself):
 
 1. Create a reference without cloned properties, so we do not accidentally clone twice or get an infinite loop from cyclic references
 2. Store the new reference in the internal map that is required to handle repeated and cyclic references
-3. Clone all its properties with the updated reference map and add them to the reference
+3. Clone all its properties with the updated reference map and add them to the new reference
+
+There are multiple ways to solve this, so let's explore a few:
 
 #### Naive implementation as simple function
 
 A naive implementation of these steps looks like this:
 
 ```javascript
-function cloneMethod(object, map, clone) {
-  const reference = new object.constructor();
-  map.set(object, reference);
-  Object.keys(object).forEach((key) => {
-    reference[key] = clone(object[key]);
+function cloneMethod(map, clone) {
+  const reference = new this.constructor();
+  map.set(this, reference);
+  Object.keys(this).forEach((key) => {
+    reference[key] = clone(this[key]);
   });
   return reference;
 }
 ```
 
-While this is without question the most simple approach, it has the serious drawback that it might be forgotten to fill the reference map, which breaks the detection of repeated or cyclic references. So let's see if there are better approaches.
+While this is without question the most simple approach, it has the serious drawback that it might be forgotten to fill the reference map, which breaks the detection of repeated or cyclic references and also is easy to get wrong. So let's see if there are better approaches.
 
 #### Array with two separate functions
 
@@ -152,10 +174,10 @@ In order to externalize the addition of the reference to the map, one could spli
 
 ```javascript
 const cloneMethod = [
-  (object) => new object.constructor(),
-  (reference, object, clone) => 
-    Object.keys(object).forEach((key) => {
-      reference[key] = clone(object[key])
+  () => new this.constructor(),
+  (reference, clone) => 
+    Object.keys(this).forEach((key) => {
+      reference[key] = clone(this[key])
     })
 ]
 ```
@@ -167,11 +189,11 @@ This is more tidy than the single function and splitting the steps into separate
 What if we could still use only one function while making sure the map was filled externally? Let's try a generator function:
 
 ```javascript
-const cloneMethod = function*(object, clone) {
-  const reference = new object.constructor();
+const cloneMethod = function*(clone) {
+  const reference = new this.constructor();
   yield reference
-  Object.keys(object).forEach((key) => {
-    reference[key] = clone(object[key])
+  Object.keys(this).forEach((key) => {
+    reference[key] = clone(this[key])
   })
 }
 ```
@@ -180,19 +202,19 @@ This approach seems by far the most elegant one, leveraging the ability of itera
 
 #### Example
 
-For example, if you want to clone DOM Nodes and functions, but do not want to clone MyClass instances, you can extend `Object.clone` like this:
+For example, if you want to clone DOM Nodes and functions, but do not want to clone MyClass instances (that do have a method in their constructor), you can extend `Object.clone` like this:
 
 ```javascript
 const clone = Object.clone(object, new Map([
   [
     Function,
-    function* (func, clone) {
+    function* (clone) {
       let ref, error;
       try {
-        ref = new Function(`return ${func.toString()}`)();
+        ref = new Function(`return ${this.toString()}`)();
       } catch (e) {
         // do not clone native functions
-        ref = func;
+        ref = this;
         error = e;
       }
       yield ref;
@@ -204,29 +226,12 @@ const clone = Object.clone(object, new Map([
       }
     },
   ],
-  [Node, function*(node) {
-    yield node.cloneNode(true)
+  [Node, function*() {
+    yield this.cloneNode(true)
   }],
   [MyClass, false]
 ]));
 ```
-
-#### Persistent modification
-
-The thought of being able to persistently modify the handling of certain types. Unfortunately, since the method might be called from external libraries, this could easily lead to unintended behavior as overwriting native prototypes and therefore, such a possibility was dismissed after short consideration.
-
-#### Best practices for library authors
-
-Libraries and frameworks might want their own types to be handled consistently by `Object.clone`. The best practice is to export an array that can be destructured into the initial array for `methodMap`, preferably as a separate entity or even package inside your library to avoid it being unnecessarily linked into your user's project.
-
-```javascript
-export const cloneMethods = [
-  [Type1, function* () { ... }],
-  [Type2, function* () { ... }],
-];
-```
-
-This allows for consistent handling for all external libraries that apply these best practices.
 
 ### Security
 
@@ -237,98 +242,69 @@ Also, one could make a case for an extension API that allowed for anyone to add/
 ## Polyfill
 
 ```javascript
+if (!Symbol.clone) {
+  Symbol.clone = Symbol.for("Symbol.clone");
+  Date.prototype[Symbol.clone] = function* () {
+    yield new Date(this.valueOf());
+  };
+  Set.prototype[Symbol.clone] = function* (clone) {
+    const ref = new Set();
+    yield ref;
+    this.forEach((value) => ref.add(clone(value)));
+  };
+  Map.prototype[Symbol.clone] = function* (clone) {
+    const ref = new Map();
+    yield ref;
+    this.forEach((value, key) => ref.set(key, clone(value)));
+  };
+  [
+    Int8Array,
+    Uint8Array,
+    Uint8ClampedArray,
+    Int16Array,
+    Uint16Array,
+    Int32Array,
+    Uint32Array,
+    Float32Array,
+    Float64Array,
+    BigInt64Array,
+    BigUint64Array,
+  ].forEach((constructor) => {
+    constructor.prototype[Symbol.clone] = function* (clone) {
+      const ref = new this.constructor(this.length);
+      yield ref;
+      ref.set(this.map((value) => clone(value)));
+    };
+  });
+  RegExp.prototype[Symbol.clone] = function* () {
+    yield new RegExp(this);
+  };
+  Array.prototype[Symbol.clone] = function* (clone) {
+    const ref = new this.constructor(this.length);
+    yield ref;
+    this.forEach((value, index) => {
+      ref[index] = clone(value);
+    });
+  };
+  Object.prototype[Symbol.clone] = function* (clone) {
+    const ref = new this.constructor();
+    yield ref;
+    Object.entries(this).forEach(([key, value]) => {
+      ref[key] = clone(value);
+    });
+  };
+}
 if (typeof Object.clone !== "function") {
   const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|BigInt|String|Symbol|Module|Weak(?:Set|Map)|(?:Shared)?ArrayBuffer|DataView)\]$/;
-
-  function* handleTypedArrays(typedArray, clone) {
-    const ref = new typedArray.constructor(typedArray.length);
-    yield ref;
-    ref.set(typedArray.map((value) => clone(value)));
-  }
-
-  const defaultMethods = new Map([
-    [
-      Date,
-      function* (date) {
-        yield new Date(date.valueOf());
-      },
-    ],
-    [
-      Set,
-      function* (set, clone) {
-        const ref = new Set();
-        yield ref;
-        set.forEach((value) => ref.add(clone(value)));
-      },
-    ],
-    [
-      Map,
-      function* (map, clone) {
-        const ref = new Map();
-        yield ref;
-        map.forEach((value, key) => ref.set(key, clone(value)));
-      },
-    ],
-    ...[
-      Int8Array,
-      Uint8Array,
-      Uint8ClampedArray,
-      Int16Array,
-      Uint16Array,
-      Int32Array,
-      Uint32Array,
-      Float32Array,
-      Float64Array,
-      BigInt64Array,
-      BigUint64Array,
-    ].map((constructor) => [constructor, handleTypedArrays]),
-    [Function, false],
-    [
-      Promise,
-      function* (promise) {
-        yield new Promise((resolve, reject) => {
-          promise.then(resolve).catch(reject);
-        });
-      },
-    ],
-    [
-      RegExp,
-      function* (regexp) {
-        yield new RegExp(regexp);
-      },
-    ],
-    [
-      Object,
-      function* (obj, clone) {
-        const ref = new obj.constructor();
-        yield ref;
-        clone.properties();
-      },
-    ],
-  ]);
-
-  if (this.Node) {
-    defaultMethods.set(Node, false);
-  }
-
-  const getByInstance = (obj, methodMap) => {
-    for (const constructor of methodMap.keys()) {
-      if (obj instanceof constructor) return methodMap.get(constructor);
-    }
-  };
-
-  const getCloneMethod = (obj, methodMap) =>
-    methodMap.get(obj.constructor) ??
-    defaultMethods.get(obj.constructor) ??
-    getByInstance(obj, methodMap) ??
-    getByInstance(obj, defaultMethods) ??
-    methodMap.get(Object) ??
-    defaultMethods.get(Object);
-
   const clone = (obj, map, methodMap) => {
     if (unclonable.test(Object.prototype.toString.call(obj))) return obj;
     if (map.has(obj)) return map.get(obj);
-    const cloneMethod = getCloneMethod(obj, methodMap);
+    const cloneMethod =
+      methodMap.get(obj.constructor) ??
+      (Object.hasOwnProperty.call(obj, Symbol.clone) ||
+        Object.hasOwnProperty.call(obj.constructor.prototype, Symbol.clone))
+        ? obj[Symbol.clone]
+        : null;
     if (!cloneMethod) return obj;
     const ref = { current: undefined };
     const wrappedClone = (obj) => {
@@ -336,17 +312,7 @@ if (typeof Object.clone !== "function") {
         return clone(obj, map, methodMap);
       }
     };
-    wrappedClone.properties = () => {
-      if (ref.current === undefined) {
-        return;
-      }
-      for (const key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-          ref.current[key] = wrappedClone(obj[key]);
-        }
-      }
-    };
-    const cloneIterator = cloneMethod(obj, wrappedClone);
+    const cloneIterator = cloneMethod.call(obj, wrappedClone);
     ref.current = cloneIterator.next().value;
     map.set(obj, ref.current);
     if (ref.current) {
@@ -354,7 +320,6 @@ if (typeof Object.clone !== "function") {
     }
     return ref.current;
   };
-
   Object.clone = (obj, methodMap) =>
     clone(obj, new Map(), methodMap || new Map());
 }

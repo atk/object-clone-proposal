@@ -1,95 +1,66 @@
+if (!Symbol.clone) {
+  Symbol.clone = Symbol.for("Symbol.clone");
+  Date.prototype[Symbol.clone] = function* () {
+    yield new Date(this.valueOf());
+  };
+  Set.prototype[Symbol.clone] = function* (clone) {
+    const ref = new Set();
+    yield ref;
+    this.forEach((value) => ref.add(clone(value)));
+  };
+  Map.prototype[Symbol.clone] = function* (clone) {
+    const ref = new Map();
+    yield ref;
+    this.forEach((value, key) => ref.set(key, clone(value)));
+  };
+  [
+    Int8Array,
+    Uint8Array,
+    Uint8ClampedArray,
+    Int16Array,
+    Uint16Array,
+    Int32Array,
+    Uint32Array,
+    Float32Array,
+    Float64Array,
+    BigInt64Array,
+    BigUint64Array,
+  ].forEach((constructor) => {
+    constructor.prototype[Symbol.clone] = function* (clone) {
+      const ref = new this.constructor(this.length);
+      yield ref;
+      ref.set(this.map((value) => clone(value)));
+    };
+  });
+  RegExp.prototype[Symbol.clone] = function* () {
+    yield new RegExp(this);
+  };
+  Array.prototype[Symbol.clone] = function* (clone) {
+    const ref = new this.constructor(this.length);
+    yield ref;
+    this.forEach((value, index) => {
+      ref[index] = clone(value);
+    });
+  };
+  Object.prototype[Symbol.clone] = function* (clone) {
+    const ref = new this.constructor();
+    yield ref;
+    Object.entries(this).forEach(([key, value]) => {
+      ref[key] = clone(value);
+    });
+  };
+}
 if (typeof Object.clone !== "function") {
   const unclonable = /^\[object (?:Undefined|Null|Boolean|Number|BigInt|String|Symbol|Module|Weak(?:Set|Map)|(?:Shared)?ArrayBuffer|DataView)\]$/;
-
-  function* handleTypedArrays(typedArray, clone) {
-    const ref = new typedArray.constructor(typedArray.length);
-    yield ref;
-    ref.set(typedArray.map((value) => clone(value)));
-  }
-
-  const defaultMethods = new Map([
-    [
-      Date,
-      function* (date) {
-        yield new Date(date.valueOf());
-      },
-    ],
-    [
-      Set,
-      function* (set, clone) {
-        const ref = new Set();
-        yield ref;
-        set.forEach((value) => ref.add(clone(value)));
-      },
-    ],
-    [
-      Map,
-      function* (map, clone) {
-        const ref = new Map();
-        yield ref;
-        map.forEach((value, key) => ref.set(key, clone(value)));
-      },
-    ],
-    ...[
-      Int8Array,
-      Uint8Array,
-      Uint8ClampedArray,
-      Int16Array,
-      Uint16Array,
-      Int32Array,
-      Uint32Array,
-      Float32Array,
-      Float64Array,
-      BigInt64Array,
-      BigUint64Array,
-    ].map((constructor) => [constructor, handleTypedArrays]),
-    [Function, false],
-    [
-      Promise,
-      function* (promise) {
-        yield new Promise((resolve, reject) => {
-          promise.then(resolve).catch(reject);
-        });
-      },
-    ],
-    [
-      RegExp,
-      function* (regexp) {
-        yield new RegExp(regexp);
-      },
-    ],
-    [
-      Object,
-      function* (obj, clone) {
-        const ref = new obj.constructor();
-        yield ref;
-        clone.properties();
-      },
-    ],
-  ]);
-
-  if (this.Node) {
-    defaultMethods.set(Node, false);
-  }
-
-  const getByInstance = (obj, methodMap) => {
-    for (const constructor of methodMap.keys()) {
-      if (obj instanceof constructor) return methodMap.get(constructor);
-    }
-  };
-
-  const getCloneMethod = (obj, methodMap) =>
-    methodMap.get(obj.constructor) ??
-    defaultMethods.get(obj.constructor) ??
-    getByInstance(obj, methodMap) ??
-    getByInstance(obj, defaultMethods) ??
-    methodMap.get(Object) ??
-    defaultMethods.get(Object);
-
   const clone = (obj, map, methodMap) => {
     if (unclonable.test(Object.prototype.toString.call(obj))) return obj;
     if (map.has(obj)) return map.get(obj);
-    const cloneMethod = getCloneMethod(obj, methodMap);
+    const cloneMethod =
+      methodMap.get(obj.constructor) ??
+      (Object.hasOwnProperty.call(obj, Symbol.clone) ||
+        Object.hasOwnProperty.call(obj.constructor.prototype, Symbol.clone))
+        ? obj[Symbol.clone]
+        : null;
     if (!cloneMethod) return obj;
     const ref = { current: undefined };
     const wrappedClone = (obj) => {
@@ -97,17 +68,7 @@ if (typeof Object.clone !== "function") {
         return clone(obj, map, methodMap);
       }
     };
-    wrappedClone.properties = () => {
-      if (ref.current === undefined) {
-        return;
-      }
-      for (const key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-          ref.current[key] = wrappedClone(obj[key]);
-        }
-      }
-    };
-    const cloneIterator = cloneMethod(obj, wrappedClone);
+    const cloneIterator = cloneMethod.call(obj, wrappedClone);
     ref.current = cloneIterator.next().value;
     map.set(obj, ref.current);
     if (ref.current) {
@@ -115,7 +76,6 @@ if (typeof Object.clone !== "function") {
     }
     return ref.current;
   };
-
   Object.clone = (obj, methodMap) =>
     clone(obj, new Map(), methodMap || new Map());
 }

@@ -151,6 +151,11 @@ const testObjectClone = async () => {
     message() {
       return "test";
     }
+    get [Symbol.clone]() {
+      return function* () {
+        yield new Test();
+      };
+    }
   }
   testClones(new Test(), "test Class");
 
@@ -165,21 +170,21 @@ const testObjectClone = async () => {
   console.log("  clones functions if so extended");
   const cloneFunction = [
     Function,
-    function* (func, clone) {
+    function* (clone) {
       let ref, error;
       try {
-        ref = new Function(`return ${func.toString()}`)();
+        ref = new Function(`return ${this.toString()}`)();
       } catch (e) {
         // do not clone native functions
-        ref = func;
+        ref = this;
         error = e;
       }
       yield ref;
       if (error) {
         return;
       }
-      for (const key in func) {
-        ref[key] = clone(func[key]);
+      for (const key in this) {
+        ref[key] = clone(this[key]);
       }
     },
   ];
